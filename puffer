@@ -1,0 +1,73 @@
+#!/bin/bash
+
+# Define e armazena o diretório padrão
+default_folder="/home/$USER/Músicas"
+
+# Solicita a URL do vídeo
+url=$(whiptail --title "Recolhendo informação" --inputbox "Digite a URL do vídeo:" 10 50 "" 3>&1 1>&2 2>&3)
+
+# Checa se a URL foi fornecida
+if [ -z "$url" ]; then
+    whiptail --title "Aviso Interno" --msgbox "Nenhuma URL fornecida. O script será encerrado." 8 45
+    exit 1
+fi
+
+# Pergunta ao usuário sobre a pasta de destino (usando a pasta padrão ou permitindo que ele escolha)
+folder=$(whiptail --title "Pastas" --inputbox "Escolha a pasta para salvar a música:" 10 50 "$default_folder" 3>&1 1>&2 2>&3)
+
+# Se o usuário pressionar Cancelar, o script será encerrado
+if [ -z "$folder" ]; then
+    whiptail --title "Aviso Interno" --msgbox "Operação cancelada. O script será encerrado." 8 45
+    exit 1
+fi
+
+# Pergunta ao usuário sobre o formato de áudio desejado
+audio_format=$(whiptail --title "Escolha o formato de áudio" --radiolist \
+"Escolha o formato de áudio para download:" 15 50 2 \
+"flac" "FLAC" ON \
+"mp3" "MP3" OFF 3>&1 1>&2 2>&3)
+
+# Exibe a barra de progresso informando que estamos localizando a pasta e configurando
+(
+    for i in {1..100}; do
+        echo $i
+        sleep 0.07
+    done
+) | whiptail --title "Procurando e Configurando" --gauge "Localizando a pasta escolhida..." 8 45 0
+
+# Verifica se o diretório existe, caso contrário, cria
+if [ ! -d "$folder" ]; then
+    mkdir -p "$folder"
+fi
+
+# Cria uma pasta oculta aleatória com no mínimo 8 caracteres na home
+temp_folder=$(mktemp -d "/home/$USER/.XXXXXXXX")
+
+# Obtém o nome do arquivo da música que será baixada com o yt-dlp
+filename=$(yt-dlp --get-filename -f bestaudio --extract-audio --audio-format "$audio_format" --audio-quality 0 "$url")
+
+# Inicia o yt-dlp em segundo plano para baixar o áudio para a pasta oculta
+yt-dlp -f bestaudio --extract-audio --audio-format "$audio_format" --audio-quality 0 "$url" --quiet -o "$temp_folder/%(title)s.%(ext)s" &
+
+# ID do processo do yt-dlp
+yt_dlp_pid=$!
+
+# Exibe a barra de progresso com whiptail enquanto o yt-dlp está baixando
+(
+    for i in {1..100}; do
+        echo "$i"
+        sleep 0.6
+    done
+) | whiptail --title "Convertendo e Baixando" --gauge "Aguarde só um momento, logo sua música estará pronta. Em processo: $filename" 10 50 0
+
+# Espera o processo do yt-dlp terminar
+wait $yt_dlp_pid
+
+# Mover o arquivo da pasta oculta para a pasta de destino do usuário
+mv "$temp_folder"/* "$folder/"
+
+# Exibe a caixa de sucesso quando o download for concluído
+whiptail --title "Aviso Interno" --msgbox "A música foi baixada com sucesso!" 8 45
+
+# Limpeza: remove a pasta temporária oculta após mover o arquivo
+rm -rf "$temp_folder"
